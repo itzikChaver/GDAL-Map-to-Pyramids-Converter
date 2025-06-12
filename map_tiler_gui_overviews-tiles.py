@@ -2,19 +2,19 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 import os
 import subprocess
-import threading # To run the command in the background so the GUI doesn't freeze
-import shutil # For copying files
+import threading
+import shutil
 
 class MapTilerApp:
     def __init__(self, master):
         self.master = master
         master.title("GDAL Map Converter")
-        master.geometry("700x650") # Increased height slightly for new options
-        master.resizable(False, False) # Prevents window resizing
+        master.geometry("700x650")
+        master.resizable(False, False)
 
         self.input_file_path = None
-        self.output_dir_path = tk.StringVar(master) # Variable to store output directory path
-        self.conversion_type_var = tk.StringVar(master, value="tiles") # Default to "tiles"
+        self.output_base_dir_var = tk.StringVar(master) # Renamed for clarity: this is the *base* output dir chosen by user
+        self.conversion_type_var = tk.StringVar(master, value="tiles")
 
         # --- Top Frame - Input File Selection ---
         self.input_frame = tk.LabelFrame(master, text="Input Map File", bd=2, relief="groove")
@@ -34,24 +34,24 @@ class MapTilerApp:
         self.conversion_type_frame.pack(pady=10, padx=10, fill="x")
 
         self.tiles_radio = tk.Radiobutton(self.conversion_type_frame, text="Generate Web Map Tiles (Creates new folder with tiles)",
-                                          variable=self.conversion_type_var, value="tiles", command=self.toggle_options_visibility)
+                                             variable=self.conversion_type_var, value="tiles", command=self.toggle_options_visibility)
         self.tiles_radio.pack(anchor="w", padx=5, pady=2)
 
         self.overviews_radio = tk.Radiobutton(self.conversion_type_frame, text="Add Internal Overviews (Creates a new GeoTIFF copy with overviews)",
-                                             variable=self.conversion_type_var, value="overviews", command=self.toggle_options_visibility)
+                                              variable=self.conversion_type_var, value="overviews", command=self.toggle_options_visibility)
         self.overviews_radio.pack(anchor="w", padx=5, pady=2)
         
         # --- Output Directory Selection (visible for both types now) ---
-        self.output_frame = tk.LabelFrame(master, text="Output Directory", bd=2, relief="groove") # Moved outside conversion_type_frame
+        self.output_frame = tk.LabelFrame(master, text="Base Output Directory", bd=2, relief="groove") # Renamed LabelFrame text
         self.output_frame.pack(pady=10, padx=10, fill="x")
 
-        tk.Label(self.output_frame, text="Select a directory to save the output:").pack(pady=5)
+        tk.Label(self.output_frame, text="Select a base directory to save the output:").pack(pady=5)
         
-        self.output_path_entry = tk.Entry(self.output_frame, textvariable=self.output_dir_path, width=80)
+        self.output_path_entry = tk.Entry(self.output_frame, textvariable=self.output_base_dir_var, width=80)
         self.output_path_entry.pack(pady=5)
         self.output_path_entry.config(state="readonly")
 
-        self.browse_output_button = tk.Button(self.output_frame, text="Select Output Directory...", command=self.browse_output_dir)
+        self.browse_output_button = tk.Button(self.output_frame, text="Select Base Output Directory...", command=self.browse_output_dir)
         self.browse_output_button.pack(pady=5)
 
         # --- Options Frame - Conversion Options ---
@@ -92,26 +92,12 @@ class MapTilerApp:
         conversion_type = self.conversion_type_var.get()
         if conversion_type == "tiles":
             self.levels_label.config(text="Zoom Levels (e.g.: 0-16):")
-            if not self.zoom_level_var.get(): # Set default if empty
+            if not self.zoom_level_var.get() or self.zoom_level_var.get() == "2 4 8 16": # Set default if empty or was overviews default
                 self.zoom_level_var.set("0-16")
-            
-            # Auto-populate output directory if an input file is already selected
-            if self.input_file_path:
-                base_name = os.path.splitext(os.path.basename(self.input_file_path))[0]
-                default_output_path = os.path.join(os.path.dirname(self.input_file_path), f"{base_name}_tiles")
-                self.output_dir_path.set(default_output_path)
-
-
         else: # "overviews" selected
             self.levels_label.config(text="Overview Levels (e.g.: 2 4 8 16):")
             if not self.zoom_level_var.get() or self.zoom_level_var.get() == "0-16": # Set default if empty or was tiles default
                 self.zoom_level_var.set("2 4 8 16")
-
-            # For overviews, the output file is named after input, placed in selected output folder
-            if self.input_file_path and self.output_dir_path.get() == os.path.join(os.path.dirname(self.input_file_path), f"{os.path.splitext(os.path.basename(self.input_file_path))[0]}_tiles"):
-                 # Clear default if it was tiles default and switch to overviews
-                 self.output_dir_path.set("")
-
 
     def browse_input_file(self):
         file_path = filedialog.askopenfilename(
@@ -126,16 +112,14 @@ class MapTilerApp:
                 return
 
             self.set_input_file(file_path)
-            self.toggle_options_visibility() # Update output path based on new input and conversion type
-
 
     def browse_output_dir(self):
         dir_path = filedialog.askdirectory(
-            title="Select Output Directory"
+            title="Select Base Output Directory"
         )
         if dir_path:
-            self.output_dir_path.set(dir_path)
-            self.status_label.config(text=f"Output directory selected: {os.path.basename(dir_path)}")
+            self.output_base_dir_var.set(dir_path) # Update the base directory
+            self.status_label.config(text=f"Base output directory selected: {os.path.basename(dir_path)}")
             self.clear_output_text()
 
 
@@ -168,62 +152,67 @@ class MapTilerApp:
             messagebox.showerror("Error", "Please select a valid input map file first.")
             return
         
-        conversion_type = self.conversion_type_var.get()
-        chosen_output_dir = self.output_dir_path.get()
+        # Get the base output directory chosen by the user
+        chosen_base_output_dir = self.output_base_dir_var.get()
 
-        if not chosen_output_dir: # Output directory is required for both now
-            messagebox.showerror("Error", "Please select an output directory.")
+        if not chosen_base_output_dir:
+            messagebox.showerror("Error", "Please select a base output directory.")
             return
         
-        # Ensure the chosen output directory exists
-        if not os.path.exists(chosen_output_dir):
-            try:
-                os.makedirs(chosen_output_dir)
-                self.update_output_text(f"Created output base directory: {chosen_output_dir}\n")
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not create output directory: {chosen_output_dir}\nError: {e}")
+        # Derive the *actual* output directory where files will be placed
+        input_file_base_name = os.path.splitext(os.path.basename(self.input_file_path))[0]
+        
+        # Define the actual output directory based on conversion type
+        conversion_type = self.conversion_type_var.get()
+        
+        # --- CRITICAL FIX HERE ---
+        if conversion_type == "tiles":
+            actual_output_dir = os.path.join(chosen_base_output_dir, f"{input_file_base_name}_tiles")
+            # For tiles, ensure the sub-directory exists
+            if not os.path.exists(actual_output_dir):
+                try:
+                    os.makedirs(actual_output_dir)
+                    self.update_output_text(f"Created output directory: {actual_output_dir}\n")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Could not create output directory for tiles: {actual_output_dir}\nError: {e}")
+                    return
+        else: # "overviews"
+            # For overviews, the output is a single file directly in the chosen_base_output_dir.
+            # No need to create a new sub-directory. We just use the base directory.
+            actual_output_dir = chosen_base_output_dir
+            # For overviews, we only need to ensure the *base* output directory exists
+            if not os.path.exists(actual_output_dir):
+                messagebox.showerror("Error", f"Base output directory does not exist: {actual_output_dir}")
                 return
+
 
         self.clear_output_text()
         self.status_label.config(text="Starting conversion...", fg="orange")
         self.convert_button.config(state="disabled") # Prevents double clicks
 
-        # Run the conversion in a separate thread so the GUI doesn't freeze
-        self.conversion_thread = threading.Thread(target=self.run_gdal_command, args=(conversion_type, chosen_output_dir,))
+        # Pass the *actual* output directory to the command function
+        self.conversion_thread = threading.Thread(target=self.run_gdal_command, args=(conversion_type, actual_output_dir,))
         self.conversion_thread.start()
 
-    def run_gdal_command(self, conversion_type, output_base_dir):
+    def run_gdal_command(self, conversion_type, actual_output_dir): # Renamed output_base_dir to actual_output_dir
         input_file = self.input_file_path
         resampling_method = self.resampling_method_var.get()
-        levels_input = self.zoom_level_var.get() # Renamed from zoom_levels for clarity
+        levels_input = self.zoom_level_var.get()
 
         command = []
         final_output_display_path = "" # What will be shown in the success message
 
         # --- Define Paths to GDAL Executables within the project's 'bin' folder ---
-        # Get the directory where the current script (map_tiler_gui.py) is located
         script_dir = os.path.dirname(__file__)
         
-        # Construct the full paths to the GDAL executables in the 'bin' folder
         gdal2tiles_exe_path = os.path.join(script_dir, "bin", "gdal2tiles.exe") 
         gdaladdo_exe_path = os.path.join(script_dir, "bin", "gdaladdo.exe") 
         gdal_translate_exe_path = os.path.join(script_dir, "bin", "gdal_translate.exe")
 
-        # --- VERY IMPORTANT: Set the GDAL_DATA environment variable ---
-        # gdal2tiles, gdaladdo, gdal_translate often need GDAL_DATA to find projection files, etc.
-        # This variable points to the 'gdal-data' folder, typically inside OSGeo4W installation.
-        # You'll need to copy this folder into your 'bin' directory, or find its path.
-        # A common location for GDAL_DATA would be: C:\OSGeo4W\share\gdal (or similar)
-        # For simplicity, let's assume you've copied 'gdal-data' into your 'bin' folder.
-        # Or, if you know the fixed path, you can use it directly:
-        # gdal_data_path = r"C:\OSGeo4W\share\gdal" 
-        
-        # If you copy the 'gdal-data' folder into your 'bin' directory:
+        # --- Set the GDAL_DATA environment variable ---
         gdal_data_path = os.path.join(script_dir, "bin", "gdal-data") 
-
-         # Create a copy of the current environment variables
+        
         env = os.environ.copy()
-        # Add or update GDAL_DATA
         env['GDAL_DATA'] = gdal_data_path
         # Optionally, you might also need to add the 'bin' directory to PATH if there are shared DLLs
         # env['PATH'] = os.path.join(script_dir, "bin") + os.pathsep + env['PATH']
@@ -236,34 +225,31 @@ class MapTilerApp:
                 '-z', levels_input, # Use '0-16' format for gdal2tiles
                 f'--resampling={resampling_method}',
                 input_file,
-                output_base_dir # gdal2tiles.exe will create a subfolder here
+                actual_output_dir # gdal2tiles.exe will create the tiles directly in this folder
             ]
-            base_name = os.path.splitext(os.path.basename(input_file))[0]
-            final_output_display_path = os.path.join(output_base_dir, f"{base_name}_tiles")
+            final_output_display_path = actual_output_dir # The tiles folder is the final output
 
         elif conversion_type == "overviews":
             # --- gdal_translate + gdaladdo Logic ---
-            # 1. Validate input file type (already done in browse_input_file)
             if not input_file.lower().endswith(('.tif', '.tiff')):
-                 self.update_output_text("Error: For overviews, the input file MUST be a GeoTIFF (.tif/.tiff).\n")
-                 messagebox.showerror("Error", "For 'Add Internal Overviews', the input file MUST be a GeoTIFF (.tif/.tiff).")
-                 self.status_label.config(text="Conversion failed.", fg="red")
-                 self.convert_button.config(state="normal")
-                 return
+                self.update_output_text("Error: For overviews, the input file MUST be a GeoTIFF (.tif/.tiff).\n")
+                messagebox.showerror("Error", "For 'Add Internal Overviews', the input file MUST be a GeoTIFF (.tif/.tiff).")
+                self.status_label.config(text="Conversion failed.", fg="red")
+                self.convert_button.config(state="normal")
+                return
 
-            # 2. Validate overview levels format
             levels_list = levels_input.split()
             if not all(part.isdigit() for part in levels_list):
-                 self.update_output_text("Error: For overviews, 'Levels' must be space-separated integers (e.g., '2 4 8 16').\n")
-                 messagebox.showerror("Error", "For 'Add Internal Overviews', 'Levels' must be space-separated integers (e.g., '2 4 8 16').")
-                 self.status_label.config(text="Conversion failed.", fg="red")
-                 self.convert_button.config(state="normal")
-                 return
+                self.update_output_text("Error: For overviews, 'Levels' must be space-separated integers (e.g., '2 4 8 16').\n")
+                messagebox.showerror("Error", "For 'Add Internal Overviews', 'Levels' must be space-separated integers (e.g., '2 4 8 16').")
+                self.status_label.config(text="Conversion failed.", fg="red")
+                self.convert_button.config(state="normal")
+                return
 
-            # Define the new output GeoTIFF filename
+            # Define the new output GeoTIFF filename within the actual_output_dir
             base_name = os.path.splitext(os.path.basename(input_file))[0]
             output_geotiff_name = f"{base_name}_with_overviews.tif"
-            output_geotiff_path = os.path.join(output_base_dir, output_geotiff_name)
+            output_geotiff_path = os.path.join(actual_output_dir, output_geotiff_name) # Output file goes directly into actual_output_dir
             final_output_display_path = output_geotiff_path
 
             # A. First, create a copy of the GeoTIFF using gdal_translate
@@ -275,7 +261,8 @@ class MapTilerApp:
             ]
             
             try:
-                process_translate = subprocess.Popen(translate_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, shell=True, env=os.environ.copy())
+                # Use the modified environment for subprocess calls
+                process_translate = subprocess.Popen(translate_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, shell=True, env=env)
                 for line in process_translate.stdout:
                     self.update_output_text(line)
                 process_translate.wait()
@@ -290,7 +277,7 @@ class MapTilerApp:
 
             except FileNotFoundError:
                 self.status_label.config(text=f"Error: gdal_translate.exe not found at the specified path ({gdal_translate_exe_path}).", fg="red")
-                messagebox.showerror("Error", f"gdal_translate.exe not found. Ensure the full path you entered in the code is correct.")
+                messagebox.showerror("Error", f"gdal_translate.exe not found. Ensure the full path in the code is correct.")
                 self.convert_button.config(state="normal")
                 return
             except Exception as e:
@@ -312,7 +299,8 @@ class MapTilerApp:
 
         try:
             # Execute the GDAL command (gdal2tiles or gdaladdo on the copy)
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, shell=True, env=os.environ.copy())
+            # Use the modified environment for this subprocess call as well
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, shell=True, env=env)
             
             for line in process.stdout:
                 self.update_output_text(line)
@@ -333,7 +321,7 @@ class MapTilerApp:
 
         except FileNotFoundError:
             exe_name = "gdal2tiles.exe" if conversion_type == "tiles" else "gdaladdo.exe"
-            error_msg = f"Error: {exe_name} not found at the specified path. Ensure full and valid path."
+            error_msg = f"Error: {exe_name} not found at the specified path. Ensure the executable exists and the path is correct."
             self.status_label.config(text=error_msg, fg="red")
             messagebox.showerror("Error", error_msg)
         except Exception as e:
@@ -347,3 +335,5 @@ if __name__ == "__main__":
     
     app = MapTilerApp(root)
     root.mainloop()
+
+
