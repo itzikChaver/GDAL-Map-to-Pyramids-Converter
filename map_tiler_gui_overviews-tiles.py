@@ -62,13 +62,14 @@ class MapTilerApp:
         self.conversion_type_frame = ttk.LabelFrame(master, text="Conversion Type", padding=(10, 10, 10, 10))
         self.conversion_type_frame.pack(pady=10, padx=15, fill="x")
 
-        self.tiles_radio = ttk.Radiobutton(self.conversion_type_frame, text="Generate Web Map Tiles (Creates new folder with tiles)",
-                                             variable=self.conversion_type_var, value="tiles", command=self.toggle_options_visibility)
+        self.tiles_radio = ttk.Radiobutton(self.conversion_type_frame, text="Generate Web Map Tiles (Creates new folder with tiles)", variable=self.conversion_type_var, value="tiles", command=self.toggle_options_visibility)
         self.tiles_radio.pack(anchor="w", padx=10, pady=2)
 
-        self.overviews_radio = ttk.Radiobutton(self.conversion_type_frame, text="Add Internal Overviews (Creates a new GeoTIFF copy with overviews)",
-                                              variable=self.conversion_type_var, value="overviews", command=self.toggle_options_visibility)
+        self.overviews_radio = ttk.Radiobutton(self.conversion_type_frame, text="Add Internal Overviews (Creates a new GeoTIFF copy with overviews)", variable=self.conversion_type_var, value="overviews", command=self.toggle_options_visibility)
         self.overviews_radio.pack(anchor="w", padx=10, pady=2)
+
+        self.srtm_radio = ttk.Radiobutton(self.conversion_type_frame, text="Convert to SRTMHGT (DTM in .hgt format)", variable=self.conversion_type_var, value="srtmhgt", command=self.toggle_options_visibility)
+        self.srtm_radio.pack(anchor="w", padx=10, pady=2)
         
         # --- Output Directory Selection ---
         self.output_frame = ttk.LabelFrame(master, text="Base Output Directory", padding=(10, 10, 10, 10)) 
@@ -120,16 +121,23 @@ class MapTilerApp:
 
 
     def toggle_options_visibility(self):
-        """Adjusts labels and entry states based on conversion type."""
         conversion_type = self.conversion_type_var.get()
         if conversion_type == "tiles":
             self.levels_label.config(text="Zoom Levels (e.g.: 0-16):")
-            if not self.zoom_level_var.get() or self.zoom_level_var.get() == "2 4 8 16": 
+            self.levels_entry.config(state="normal")
+            self.resampling_menu.config(state="normal")
+            if not self.zoom_level_var.get() or self.zoom_level_var.get() == "2 4 8 16":
                 self.zoom_level_var.set("0-16")
-        else: # "overviews" selected
+        elif conversion_type == "overviews":
             self.levels_label.config(text="Overview Levels (e.g.: 2 4 8 16):")
-            if not self.zoom_level_var.get() or self.zoom_level_var.get() == "0-16": 
+            self.levels_entry.config(state="normal")
+            self.resampling_menu.config(state="normal")
+            if not self.zoom_level_var.get() or self.zoom_level_var.get() == "0-16":
                 self.zoom_level_var.set("2 4 8 16")
+        else:  # srtmhgt
+            self.levels_label.config(text="(No zoom levels for SRTMHGT)")
+            self.levels_entry.config(state="disabled")
+            self.resampling_menu.config(state="disabled")
 
     def browse_input_file(self):
         initial_dir = None
@@ -344,6 +352,19 @@ class MapTilerApp:
                 '-r', resampling_method,
                 output_geotiff_path, 
                 *levels_list 
+            ]
+
+        elif conversion_type == "srtmhgt":
+            base_name = os.path.splitext(os.path.basename(input_file))[0]
+            output_file_name = base_name + ".hgt"
+            output_file_path = os.path.join(actual_output_dir, output_file_name)
+            final_output_display_path = output_file_path
+
+            command = [
+                gdal_translate_exe_path,
+                "-of", "SRTMHGT",
+                input_file,
+                output_file_path
             ]
             
         self.update_output_text(f"Running command:\n{' '.join(command)}\n\n")
