@@ -70,6 +70,9 @@ class MapTilerApp:
 
         self.srtm_radio = ttk.Radiobutton(self.conversion_type_frame, text="Convert to SRTMHGT (DTM in .hgt format)", variable=self.conversion_type_var, value="srtmhgt", command=self.toggle_options_visibility)
         self.srtm_radio.pack(anchor="w", padx=10, pady=2)
+
+        print("[INFO] Conversion options initialized: 'tiles', 'overviews', 'srtmhgt'")
+
         
         # --- Output Directory Selection ---
         self.output_frame = ttk.LabelFrame(master, text="Base Output Directory", padding=(10, 10, 10, 10)) 
@@ -122,6 +125,7 @@ class MapTilerApp:
 
     def toggle_options_visibility(self):
         conversion_type = self.conversion_type_var.get()
+        print(f"[DEBUG] toggle_options_visibility called for conversion_type = {conversion_type}")
         if conversion_type == "tiles":
             self.levels_label.config(text="Zoom Levels (e.g.: 0-16):")
             self.levels_entry.config(state="normal")
@@ -238,6 +242,8 @@ class MapTilerApp:
         input_file_base_name = os.path.splitext(os.path.basename(self.input_file_path))[0]
         
         conversion_type = self.conversion_type_var.get()
+
+        print(f"[DEBUG] start_conversion triggered. Selected conversion_type: {conversion_type}")
         
         if conversion_type == "tiles":
             actual_output_dir = os.path.join(chosen_base_output_dir, f"{input_file_base_name}_tiles")
@@ -248,13 +254,17 @@ class MapTilerApp:
                 except Exception as e:
                     messagebox.showerror("Error", f"Could not create output directory for tiles: {actual_output_dir}\nError: {e}")
                     return
-        else: # "overviews"
+        elif conversion_type == "overviews":
+            print("[INFO] Using existing output directory for internal overviews...")
             actual_output_dir = chosen_base_output_dir
-            # For overviews, we already validated 'chosen_base_output_dir' above as existing directory
-            # No need for this check again: if not os.path.exists(actual_output_dir):
-            # messagebox.showerror("Error", f"Base output directory does not exist: {actual_output_dir}")
-            # return
 
+        elif conversion_type == "srtmhgt":
+            print("[INFO] Using existing output directory for SRTMHGT conversion...")
+            actual_output_dir = chosen_base_output_dir
+
+        else:
+            messagebox.showerror("Error", f"Unsupported conversion type: {conversion_type}")
+            return
 
         self.clear_output_text()
         self.status_label.config(text="Starting conversion...", foreground="orange")
@@ -264,6 +274,7 @@ class MapTilerApp:
         self.conversion_thread.start()
 
     def run_gdal_command(self, conversion_type, actual_output_dir): 
+        print(f"[DEBUG] run_gdal_command executing. Type: {conversion_type}, Output: {actual_output_dir}")
         input_file = self.input_file_path
         resampling_method = self.resampling_method_var.get()
         levels_input = self.zoom_level_var.get()
@@ -283,6 +294,7 @@ class MapTilerApp:
         env['GDAL_DATA'] = gdal_data_path
 
         if conversion_type == "tiles":
+            print("[INFO] Running gdal2tiles command...")
             command = [
                 gdal2tiles_exe_path,
                 '-p', 'raster',
@@ -294,6 +306,7 @@ class MapTilerApp:
             final_output_display_path = actual_output_dir 
 
         elif conversion_type == "overviews":
+            print("[INFO] Running gdaladdo command for internal overviews...")
             if not input_file.lower().endswith(('.tif', '.tiff')):
                 self.update_output_text("Error: For overviews, the input file MUST be a GeoTIFF (.tif/.tiff).\n")
                 messagebox.showerror("Error", "For 'Add Internal Overviews', the input file MUST be a GeoTIFF (.tif/.tiff).")
@@ -355,6 +368,7 @@ class MapTilerApp:
             ]
 
         elif conversion_type == "srtmhgt":
+            print("[INFO] Running gdal_translate command for SRTMHGT conversion...")
             base_name = os.path.splitext(os.path.basename(input_file))[0]
             output_file_name = base_name + ".hgt"
             output_file_path = os.path.join(actual_output_dir, output_file_name)
@@ -406,7 +420,9 @@ class MapTilerApp:
             self.status_label.config(text=f"An unexpected error occurred: {e}", foreground="red")
             messagebox.showerror("General Error", f"An unexpected error occurred: {e}")
         finally:
-            self.convert_button.config(state="normal") 
+            self.master.after(0, lambda: self.convert_button.config(state="normal"))
+            print("[INFO] Conversion thread completed.")
+
 
 if __name__ == "__main__":
     root = tk.Tk()
