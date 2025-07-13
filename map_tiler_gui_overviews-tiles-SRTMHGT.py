@@ -1,16 +1,26 @@
+import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 from tkinter import ttk 
 import os
 import subprocess
 import threading
-import shutil
+from osgeo import gdal
+from osgeo import osr
+import math
+import os
+
+os.environ["PATH"] = r"C:\ProgramData\miniconda3\Library\bin;" + os.environ["PATH"]
+
+# Helper function to floor to nearest grid (default 1 degree)
+def floor_to_grid(value):
+    return math.floor(value) # Snap down to nearest whole degree
 
 class MapTilerApp:
     def __init__(self, master):
         self.master = master
         master.title("GDAL Map Converter")
-        master.geometry("750x800") 
+        master.geometry("850x900") 
         master.resizable(False, False)
 
         s = ttk.Style()
@@ -34,6 +44,8 @@ class MapTilerApp:
 
         self.input_file_path = "" # Will store the actual selected file path
         
+        self.srtm_quality_var = tk.StringVar(value="SRTM-3") # default
+
         # --- FIXED: Initialize output_base_dir_var to an empty string ---
         self.output_base_dir_var = tk.StringVar(master, value="") 
         self.conversion_type_var = tk.StringVar(master, value="tiles")
@@ -138,10 +150,22 @@ class MapTilerApp:
             self.resampling_menu.config(state="normal")
             if not self.zoom_level_var.get() or self.zoom_level_var.get() == "0-16":
                 self.zoom_level_var.set("2 4 8 16")
-        else:  # srtmhgt
-            self.levels_label.config(text="(No zoom levels for SRTMHGT)")
+        elif conversion_type == "srtmhgt":
+            self.levels_label.config(text="Resolution Quality:")
             self.levels_entry.config(state="disabled")
             self.resampling_menu.config(state="disabled")
+
+            if not hasattr(self, 'quality_menu'):  
+                self.quality_menu_label = ttk.Label(self.options_frame, text="Select SRTM Resolution:")
+                self.quality_menu_label.pack(anchor="w", pady=2, padx=5)
+
+                self.quality_menu = ttk.Combobox(self.options_frame, textvariable=self.srtm_quality_var, state="readonly")
+                self.quality_menu['values'] = ["SRTM-1 (3601x3601)", "SRTM-3 (1201x1201)"]
+                self.quality_menu.current(1)  
+                self.quality_menu.pack(anchor="w", pady=2, padx=5)
+            else:
+                self.quality_menu_label.grid() 
+                self.quality_menu.grid()
 
     def browse_input_file(self):
         initial_dir = None
@@ -293,6 +317,8 @@ class MapTilerApp:
         env = os.environ.copy()
         env['GDAL_DATA'] = gdal_data_path
 
+        actual_output_dir = os.path.normpath(actual_output_dir)
+
         if conversion_type == "tiles":
             print("[INFO] Running gdal2tiles command...")
             command = [
@@ -304,6 +330,8 @@ class MapTilerApp:
                 actual_output_dir 
             ]
             final_output_display_path = actual_output_dir 
+
+            self.update_output_text(f"Running command:\n{' '.join(command)}\n\n")
 
         elif conversion_type == "overviews":
             print("[INFO] Running gdaladdo command for internal overviews...")
@@ -367,21 +395,145 @@ class MapTilerApp:
                 *levels_list 
             ]
 
-        elif conversion_type == "srtmhgt":
-            print("[INFO] Running gdal_translate command for SRTMHGT conversion...")
-            base_name = os.path.splitext(os.path.basename(input_file))[0]
-            output_file_name = base_name + ".hgt"
-            output_file_path = os.path.join(actual_output_dir, output_file_name)
-            final_output_display_path = output_file_path
+            self.update_output_text(f"Running command:\n{' '.join(command)}\n\n")
 
-            command = [
-                gdal_translate_exe_path,
-                "-of", "SRTMHGT",
+        elif conversion_type == "srtmhgt":
+            print("[INFO] Starting SRTMHGT tiling...")
+
+            # Normalize paths
+            gdal_translate_exe_path = os.path.normpath(gdal_translate_exe_path)
+            gdalwarp_exe_path = gdal_translate_exe_path.replace('gdal_translate', 'gdalwarp')
+            input_file = os.path.normpath(input_file)
+            actual_output_dir = os.path.normpath(actual_output_dir)
+
+            # Choose tile size
+            quality = self.srtm_quality_var.get()
+            tile_size = 3601 if "SRTM-1" in quality else 1201
+
+            # Step 1: warp to WGS84
+            warped_file = os.path.splitext(input_file)[0] + "_wgs84.tif"
+            print(f"[INFO] Warping to WGS84: {warped_file}")
+
+            cmd = [
+                gdalwarp_exe_path,
+                "-t_srs", "EPSG:4326",
+                "-r", "bilinear",
+                "-overwrite",
                 input_file,
-                output_file_path
+                warped_file
             ]
-            
-        self.update_output_text(f"Running command:\n{' '.join(command)}\n\n")
+
+            print(f"[DEBUG] Running command: {' '.join(cmd)}")
+            try:
+                subprocess.run(cmd, check=True)
+                print("[INFO] gdalwarp finished successfully.")
+            except subprocess.CalledProcessError as e:
+                print(f"[ERROR] gdalwarp failed with exit code: {e.returncode}")
+                print(f"[ERROR] Full command: {' '.join(cmd)}")
+            except Exception as e:
+                print(f"[ERROR] Unexpected error: {e}")
+                
+            # Step 2: open warped raster
+            ds = gdal.Open(warped_file)
+            if not ds:
+                print("[ERROR] Failed to open warped file")
+                return
+            gt = ds.GetGeoTransform()
+            width = ds.RasterXSize
+            height = ds.RasterYSize
+
+            print(f"[INFO] Warped raster size: {width}x{height}")
+            print(f"[DEBUG] GeoTransform: {gt}")
+
+            top_left_lon = gt[0]
+            top_left_lat = gt[3]
+            pixel_size_x = gt[1]
+            pixel_size_y = abs(gt[5])
+
+            # Step 3: compute bounding box in whole degrees
+            bottom_right_lon = top_left_lon + width * pixel_size_x
+            bottom_right_lat = top_left_lat - height * pixel_size_y
+
+            lat_min = int(math.floor(min(top_left_lat, bottom_right_lat)))
+            lat_max = int(math.ceil(max(top_left_lat, bottom_right_lat)))
+            lon_min = int(math.floor(min(top_left_lon, bottom_right_lon)))
+            lon_max = int(math.ceil(max(top_left_lon, bottom_right_lon)))
+
+            print(f"[INFO] Lat range: {lat_min} to {lat_max}, Lon range: {lon_min} to {lon_max}")
+
+            tile_commands = []
+
+            # Step 4: create tiles
+            for lat in range(lat_min, lat_max):
+                for lon in range(lon_min, lon_max):
+                    # Calculate pixel offsets
+                    yoff = int(round((top_left_lat - (lat + 1)) / pixel_size_y))
+                    xoff = int(round((lon - top_left_lon) / pixel_size_x))
+
+                    # Defensive: ensure offsets in raster
+                    if yoff < 0 or yoff+tile_size > height or xoff < 0 or xoff+tile_size > width:
+                        print(f"[WARNING] Skipping tile out of bounds at lat={lat}, lon={lon}")
+                        continue
+
+                    hemi_ns = 'N' if lat >= 0 else 'S'
+                    hemi_ew = 'E' if lon >= 0 else 'W'
+                    filename = f"{hemi_ns}{abs(lat):03d}{hemi_ew}{abs(lon):03d}.hgt"
+                    output_path = os.path.join(actual_output_dir, filename)
+
+                    cmd = [
+                        gdal_translate_exe_path,
+                        '-srcwin', str(xoff), str(yoff), str(tile_size), str(tile_size),
+                        '-of', 'SRTMHGT',
+                        '-q',
+                        warped_file,
+                        output_path
+                    ]
+                    tile_commands.append((cmd, output_path))
+
+                    print(f"[DEBUG] Prepared tile {filename} xoff={xoff}, yoff={yoff}")
+
+            print(f"[INFO] Prepared {len(tile_commands)} tile commands")
+
+            # Step 5: run all tile commands
+            tiles_created = 0
+            for cmd, out in tile_commands:
+                cmd_str = ' '.join(cmd)
+                print(f"[DEBUG] Running command: {cmd_str}")
+                self.update_output_text(f"\nRunning: {cmd_str}\n")
+
+                try:
+                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                    output, _ = process.communicate()
+
+                    # Log output
+                    if output:
+                        self.update_output_text(output)
+                        print(output)
+
+                    print(f"[DEBUG] Process exited with code: {process.returncode}")
+                    if process.returncode != 0:
+                        self.update_output_text(f"[ERROR] Failed to create tile: {out} (exit code {process.returncode})\n")
+                    else:
+                        if os.path.exists(out):
+                            tiles_created += 1
+                            self.update_output_text(f"Tile created: {out}\n")
+                        else:
+                            self.update_output_text(f"[WARN] Command succeeded but tile not found: {out}\n")
+
+                except Exception as e:
+                    error_msg = f"Exception while running command: {e}"
+                    print(f"[ERROR] {error_msg}")
+                    self.update_output_text(f"{error_msg}\n")
+
+            # Finish
+            final_msg = f"Finished creating {tiles_created} tiles in: {actual_output_dir}"
+            print(f"[INFO] {final_msg}")
+            self.update_output_text(f"\n{final_msg}\n")
+            self.status_label.config(text=final_msg, foreground="green")
+            messagebox.showinfo("Success", final_msg)
+            self.convert_button.config(state="normal")
+            print("[INFO] SRTMHGT tiling process completed.")
+            return
 
         try:
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, shell=True, env=env)
@@ -426,6 +578,10 @@ class MapTilerApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    
     app = MapTilerApp(root)
-    root.mainloop()
+    try:
+        root.mainloop()
+    except KeyboardInterrupt:
+        print("\n[INFO] Keyboard interrupt received, exiting cleanly.")
+        root.destroy()  
+        sys.exit(0)

@@ -143,6 +143,15 @@ Before running this script, ensure you have Python installed and the necessary G
 
 * **Version:** Python 3.6 or higher is recommended for compatibility and features.
 * **Tkinter:** Tkinter, the standard Python GUI toolkit, is typically included with default Python installations on Windows. If you installed Python via a custom method or are on Linux/macOS, you might need to install `python3-tk` separately (e.g., `sudo apt-get install python3-tk` on Debian/Ubuntu systems).
+* **GDAL Python bindings:**
+  The GUI’s advanced features (such as detecting raster size and cutting into tiles for SRTMHGT) require the [GDAL Python bindings](https://pypi.org/project/GDAL/).
+  Install them via:
+
+  ```bash
+  pip install GDAL
+  ```
+
+  ⚠ *Note:* On Windows, installation via `pip` might need a precompiled wheel (e.g., from [Christoph Gohlke’s repository](https://www.lfd.uci.edu/~gohlke/pythonlibs/#gdal)) that matches your Python version and architecture.
 
 ### GDAL Binaries & Dependencies
 
