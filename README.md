@@ -2,11 +2,24 @@
 
 ## A User-Friendly Tool for Geospatial Image Processing
 
-This project provides an intuitive Graphical User Interface (GUI) built with Python's Tkinter library to streamline common geospatial image processing tasks using the powerful GDAL/OGR library. It simplifies two key functionalities:
+This project provides an intuitive **Graphical User Interface (GUI)** built with Python’s Tkinter library to simplify common geospatial raster processing tasks by leveraging the powerful **GDAL/OGR library**.
+It makes several advanced operations accessible to non-technical users, combining flexibility, safety, and ease of use.
 
-1.  **Generating Web Map Tiles (using `gdal2tiles.exe`):** Converts large geospatial image files (such as GeoTIFFs, JPGs, PNGs, etc.) into a web-optimized tile pyramid structure. This is essential for efficiently displaying extensive maps in web applications (e.g., OpenLayers, Leaflet, Google Maps API) by serving small, pre-rendered map tiles at various zoom levels, improving performance and user experience.
+The tool currently supports three key conversion workflows:
 
-2.  **Adding Internal Overviews to GeoTIFFs (using `gdal_translate.exe` and `gdaladdo.exe`):** Creates a new, optimized copy of an existing GeoTIFF file and embeds internal overviews (also known as pyramids or Reduced Resolution Datasets - RRDs) directly within the file. This significantly enhances the rendering performance of desktop GIS software (like QGIS, ArcGIS, Global Mapper) when displaying large GeoTIFFs at reduced zoom levels, as the software can quickly access the pre-computed lower-resolution versions.
+1. **Generating Web Map Tiles (using `gdal2tiles.exe`):**
+   Converts large geospatial image files (such as GeoTIFFs, JPEGs, PNGs, etc.) into a web‑optimized tile pyramid.
+   This is essential for efficiently displaying large maps in web applications (e.g., OpenLayers, Leaflet, Google Maps) by serving small, pre‑rendered tiles at different zoom levels, greatly improving performance and responsiveness.
+
+2. **Adding Internal Overviews to GeoTIFFs (using `gdal_translate.exe` and `gdaladdo.exe`):**
+   Creates an optimized copy of an existing GeoTIFF and embeds internal overviews (also known as pyramids or Reduced Resolution Datasets – RRDs).
+   These pre‑computed lower‑resolution layers enable much faster rendering when zooming out in desktop GIS applications (such as QGIS, ArcGIS, Global Mapper), as the software can read from the overviews instead of resampling the full‑resolution data on the fly.
+
+3. **TIFF/GeoTIFF in DTM format to SRTMHGT format (using `gdal_translate.exe`):**
+   Converts a digital terrain model (DTM) stored in TIFF or GeoTIFF format into the standardized **SRTMHGT** format (`.hgt` files).
+   The SRTMHGT format is widely used for terrain visualization, GIS analysis, simulation tools, and 3D applications because it uses a fixed grid (typically 1201×1201 samples per 1°×1° tile) compatible with SRTM datasets.
+
+> ⚙ Internally, the tool assembles and runs the relevant GDAL command‑line utilities, while keeping the process user‑friendly through its GUI.
 
 ---
 
@@ -17,6 +30,7 @@ This project provides an intuitive Graphical User Interface (GUI) built with Pyt
     * [Supported Input Formats](#supported-input-formats)
     * [Option 1: Generate Web Map Tiles](#option-1-generate-web-map-tiles)
     * [Option 2: Add Internal Overviews](#option-2-add-internal-overviews)
+    * [Option 3: DTM to SRTMHGT](#option-3-DTM-to-SRTMHGT)
     * [Common Option: Resampling Method](#common-option-resampling-method)
 3.  [Prerequisites](#3-prerequisites)
     * [Python 3](#python-3)
@@ -86,6 +100,31 @@ This mode leverages `gdal_translate.exe` to copy the input GeoTIFF and then `gda
     * A single new GeoTIFF file (e.g., `[original_filename]_with_overviews.tif`) will be created in your selected output directory.
     * This output file will be larger than the original, as it now contains the embedded overviews, but it will offer significantly improved performance in GIS applications.
 * **"Levels" Option:** For overviews, you specify a **space-separated list of downsampling factors** (e.g., `2 4 8 16`). Each number represents a reduction factor (e.g., `2` means half the resolution, `4` means a quarter, `16` means 1/16th the resolution). A common practice is to use powers of 2.
+
+### Option 3: DTM to SRTMHGT
+
+This mode converts a **TIFF/GeoTIFF file containing DTM (Digital Terrain Model) data** into the **SRTMHGT format** (files with `.hgt` extension).
+The SRTMHGT format is widely used in many GIS and 3D visualization applications because it matches the structure of original SRTM (Shuttle Radar Topography Mission) elevation data, using a fixed 1201 × 1201 grid per 1° × 1° geographic tile.
+
+* **Purpose:**
+  To make your locally created or acquired DTM elevation datasets compatible with software, tools, or libraries that directly consume SRTM-style `.hgt` files, such as terrain renderers, flight simulators, and some GPS mapping software.
+
+* **Requirements:**
+
+  * The input must be a raster file in TIFF or GeoTIFF format containing valid elevation data (e.g., in meters).
+  * The input should ideally have a spatial reference in WGS 84 (EPSG:4326) or a UTM zone compatible with the target area.
+  * Note: The tool does **not** currently clip or resample your TIFF to exactly match a 1°×1° tile. Make sure your input covers the correct extent (usually 1201×1201 samples) before conversion.
+
+* **Conversion process:**
+
+  1. The tool takes your selected TIFF file (e.g., `my_dtm.tif`).
+  2. It runs `gdal_translate` with the option `-of SRTMHGT` to produce an output `.hgt` file in the SRTMHGT format.
+  3. The output file keeps the base name of the original TIFF, e.g., `my_dtm.hgt`.
+
+* **Output:**
+
+  * A single `.hgt` file (e.g., `my_dtm.hgt`) located in the chosen output directory.
+  * The output is a 16‑bit signed integer raster with a fixed size of 1201×1201 pixels, which is the standard for SRTM data tiles.
 
 ### Common Option: Resampling Method
 
