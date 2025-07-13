@@ -51,8 +51,7 @@ class MapTilerApp:
         self.conversion_type_var = tk.StringVar(master, value="tiles")
 
         self.status_label = ttk.Label(master, text="Initializing GUI...", foreground="blue", font=self.status_font_config)
-        self.output_text = scrolledtext.ScrolledText(master, wrap=tk.WORD, height=15, width=70, state="disabled", font=self.output_font_config, background="#f0f0f0")
-
+        self.output_text = scrolledtext.ScrolledText(master, wrap=tk.WORD, height=25, width=70, font=self.output_font_config, background="#f0f0f0")
 
         # --- Top Frame - Input File Selection ---
         self.input_frame = ttk.LabelFrame(master, text="Input Map File", padding=(10, 10, 10, 10)) 
@@ -129,11 +128,18 @@ class MapTilerApp:
 
         # --- Output Area for Status (packed at the bottom) ---
         self.status_label.pack(pady=5) 
-        self.output_text.pack(pady=5, padx=15, fill="both", expand=True) 
+        self.output_text.pack(pady=5, padx=15, fill="both", expand=True)
+        # self.output_text.bind('<Key>', self.disable_typing)
+        # self.output_text.bind('<Control-c>', lambda e: self.output_text.event_generate('<<Copy>>'))
+        # self.output_text.bind('<Control-a>', lambda e: self.output_text.tag_add(tk.SEL, "1.0", tk.END))
 
         self.toggle_options_visibility()
         self.status_label.config(text="Ready. Please select an input file.")
 
+    # def disable_typing(event):
+    #     if event.state & 0x4:
+    #         return
+    #     return "break"
 
     def toggle_options_visibility(self):
         conversion_type = self.conversion_type_var.get()
@@ -308,21 +314,35 @@ class MapTilerApp:
 
         script_dir = os.path.dirname(__file__)
         
-        gdal2tiles_exe_path = os.path.join(script_dir, "bin", "gdal2tiles.exe") 
-        gdaladdo_exe_path = os.path.join(script_dir, "bin", "gdaladdo.exe") 
-        gdal_translate_exe_path = os.path.join(script_dir, "bin", "gdal_translate.exe")
+        gdal_bin_path = os.path.join(script_dir, "bin")
 
-        gdal_data_path = os.path.join(script_dir, "bin", "gdal-data") 
+        gdal2tiles_exe_path = os.path.join(gdal_bin_path, "gdal2tiles.exe")
+        gdaladdo_exe_path = os.path.join(gdal_bin_path, "gdaladdo.exe")
+        gdal_translate_exe_path = os.path.join(gdal_bin_path, "gdal_translate.exe")
+
+        gdal_data_path = os.path.join(gdal_bin_path, "gdal-data")
         
         env = os.environ.copy()
         env['GDAL_DATA'] = gdal_data_path
+        env['PATH'] = gdal_bin_path + ";" + env.get("PATH", "")
 
         actual_output_dir = os.path.normpath(actual_output_dir)
 
         if conversion_type == "tiles":
             print("[INFO] Running gdal2tiles command...")
+
+            # command = [
+            #     gdal2tiles_exe_path,
+            #     '-p', 'raster',
+            #     '-z', levels_input, 
+            #     f'--resampling={resampling_method}',
+            #     input_file,
+            #     actual_output_dir 
+            # ]
+
             command = [
-                gdal2tiles_exe_path,
+                "C:\\ProgramData\\miniconda3\\python.exe",
+                '-m', 'osgeo_utils.gdal2tiles',
                 '-p', 'raster',
                 '-z', levels_input, 
                 f'--resampling={resampling_method}',
@@ -356,11 +376,19 @@ class MapTilerApp:
             final_output_display_path = output_geotiff_path
 
             self.update_output_text(f"Copying GeoTIFF to: {output_geotiff_path}\n")
+            
             translate_command = [
                 gdal_translate_exe_path,
                 input_file,
                 output_geotiff_path
             ]
+
+            # translate_command = [
+            #     "C:\\ProgramData\\miniconda3\\python.exe",
+            #     '-m', 'osgeo_utils.gdal_translate',
+            #     input_file,
+            #     output_geotiff_path
+            # ]
             
             try:
                 process_translate = subprocess.Popen(translate_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, shell=True, env=env)
@@ -388,6 +416,7 @@ class MapTilerApp:
                 return
             
             self.update_output_text(f"Adding overviews to: {output_geotiff_path}\n")
+            
             command = [
                 gdaladdo_exe_path,
                 '-r', resampling_method,
@@ -395,8 +424,16 @@ class MapTilerApp:
                 *levels_list 
             ]
 
-            self.update_output_text(f"Running command:\n{' '.join(command)}\n\n")
+            # command = [
+            #     "C:\\ProgramData\\miniconda3\\python.exe",
+            #     '-m', 'osgeo_utils.gdaladdo',
+            #     '-r', resampling_method,
+            #     output_geotiff_path,
+            #     *levels_list
+            # ]
 
+            self.update_output_text(f"Running command:\n{' '.join(command)}\n\n")
+            
         elif conversion_type == "srtmhgt":
             print("[INFO] Starting SRTMHGT tiling...")
 
@@ -410,13 +447,37 @@ class MapTilerApp:
             quality = self.srtm_quality_var.get()
             tile_size = 3601 if "SRTM-1" in quality else 1201
 
-            # Step 1: warp to WGS84
+            subfolder_name = "SRTM-1" if tile_size == 3601 else "SRTM-3"
+            output_subdir = os.path.join(actual_output_dir, subfolder_name)
+
+            if not os.path.exists(output_subdir):
+                os.makedirs(output_subdir)
+                print(f"[INFO] Created output directory: {output_subdir}")
+            else:
+                print(f"[INFO] Output directory already exists: {output_subdir}")
+
+           # Step 1: warp to WGS84
             warped_file = os.path.splitext(input_file)[0] + "_wgs84.tif"
             print(f"[INFO] Warping to WGS84: {warped_file}")
+            pixel_size = 1.0 / (tile_size - 1) 
+
+            # cmd = [
+            #     "gdalwarp",
+            #     "-t_srs", "EPSG:4326",
+            #     "-r", "bilinear",
+            #     "-tap",
+            #     "-tr", str(pixel_size), str(pixel_size),
+            #     "-overwrite",
+            #     input_file,
+            #     warped_file
+            # ]
 
             cmd = [
-                gdalwarp_exe_path,
+                "gdalwarp",
                 "-t_srs", "EPSG:4326",
+                "-te", "34", "28", "38", "33",
+                "-tap",
+                "-tr", str(pixel_size), str(pixel_size),
                 "-r", "bilinear",
                 "-overwrite",
                 input_file,
@@ -429,26 +490,39 @@ class MapTilerApp:
                 print("[INFO] gdalwarp finished successfully.")
             except subprocess.CalledProcessError as e:
                 print(f"[ERROR] gdalwarp failed with exit code: {e.returncode}")
-                print(f"[ERROR] Full command: {' '.join(cmd)}")
+                return
             except Exception as e:
                 print(f"[ERROR] Unexpected error: {e}")
-                
+                return
+
             # Step 2: open warped raster
             ds = gdal.Open(warped_file)
             if not ds:
                 print("[ERROR] Failed to open warped file")
                 return
             gt = ds.GetGeoTransform()
+            top_left_lon = gt[0]
+            top_left_lat = gt[3]
+            pixel_size_x = gt[1]
+            pixel_size_y = abs(gt[5])
+
             width = ds.RasterXSize
             height = ds.RasterYSize
 
             print(f"[INFO] Warped raster size: {width}x{height}")
             print(f"[DEBUG] GeoTransform: {gt}")
 
-            top_left_lon = gt[0]
-            top_left_lat = gt[3]
-            pixel_size_x = gt[1]
-            pixel_size_y = abs(gt[5])
+            # Step 3: compute bounding box
+            bottom_right_lon = top_left_lon + ds.RasterXSize * pixel_size_x
+            bottom_right_lat = top_left_lat - ds.RasterYSize * pixel_size_y
+
+            te_min_lon = math.floor(top_left_lon)
+            te_max_lon = math.ceil(bottom_right_lon)
+            te_min_lat = math.floor(bottom_right_lat)
+            te_max_lat = math.ceil(top_left_lat)
+
+            print(f"[INFO] Lat range: {te_min_lat} to {te_max_lat}, Lon range: {te_min_lon} to {te_max_lon}")
+
 
             # Step 3: compute bounding box in whole degrees
             bottom_right_lon = top_left_lon + width * pixel_size_x
@@ -477,11 +551,11 @@ class MapTilerApp:
 
                     hemi_ns = 'N' if lat >= 0 else 'S'
                     hemi_ew = 'E' if lon >= 0 else 'W'
-                    filename = f"{hemi_ns}{abs(lat):03d}{hemi_ew}{abs(lon):03d}.hgt"
-                    output_path = os.path.join(actual_output_dir, filename)
+                    filename = f"{hemi_ns}{abs(lat):02d}{hemi_ew}{abs(lon):03d}.hgt"
+                    output_path = os.path.join(output_subdir, filename)
 
                     cmd = [
-                        gdal_translate_exe_path,
+                        "gdal_translate",
                         '-srcwin', str(xoff), str(yoff), str(tile_size), str(tile_size),
                         '-of', 'SRTMHGT',
                         '-q',
