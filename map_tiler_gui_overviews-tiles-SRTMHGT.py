@@ -5,9 +5,9 @@ from tkinter import ttk
 import os
 import subprocess
 import threading
-from osgeo import gdal
 import math
 import os
+import json
 
 # Helper function to floor to nearest grid (default 1 degree)
 def floor_to_grid(value):
@@ -470,22 +470,76 @@ class MapTilerApp:
                 print(f"[ERROR] Unexpected error: {e}")
                 return
 
-            # Step 2: open warped raster
-            ds = gdal.Open(warped_file)
-            if not ds:
-                print("[ERROR] Failed to open warped file")
+            # Step 2: open warped raster and get geo info using gdalinfo.exe
+            print("[INFO] Getting geo info from warped raster using gdalinfo...")
+
+            # Ensure gdalinfo.exe path is available (assuming it's in the same dir as gdal_translate)
+            gdalinfo_exe_path = gdal_translate_exe_path.replace('gdal_translate', 'gdalinfo')
+            gdalinfo_exe_path = os.path.normpath(gdalinfo_exe_path) # Just to be safe
+
+            # Command to run gdalinfo and get detailed metadata
+            info_cmd = [
+                gdalinfo_exe_path,
+                "-json", # Request output in JSON format for easier parsing
+                warped_file
+            ]
+
+            try:
+                # Run gdalinfo and capture its output
+                # Add env=env_for_subprocess if you're using a custom environment for subprocesses
+                result = subprocess.run(info_cmd, capture_output=True, text=True, check=True, env=env)
+                
+                # Parse the JSON output
+                info_json = json.loads(result.stdout)
+
+                # Extract required information
+                gt = info_json['geoTransform'] # This will be a list of 6 floats
+                top_left_lon = gt[0]
+                top_left_lat = gt[3]
+                pixel_size_x = gt[1]
+                pixel_size_y = abs(gt[5]) # Ensure positive for calculation
+
+                width = info_json['size'][0]
+                height = info_json['size'][1]
+
+                # You can also get the projection details if needed:
+                # projection = info_json['coordinateSystem']['wkt'] # WKT string
+                # proj_authority = info_json['coordinateSystem']['authorityName'] # e.g., "EPSG"
+                # proj_code = info_json['coordinateSystem']['code'] # e.g., "4326"
+
+                print(f"[INFO] Warped raster size: {width}x{height}")
+                print(f"[DEBUG] GeoTransform: {gt}")
+
+            except FileNotFoundError:
+                print(f"[ERROR] gdalinfo.exe not found at: {gdalinfo_exe_path}")
+                # Handle GUI error message
+                self.status_label.config(text=f"Error: gdalinfo.exe not found.", foreground="red")
+                messagebox.showerror("Error", f"gdalinfo.exe not found. Ensure OSGeo4W is installed correctly.")
+                self.master.after(0, lambda: self.convert_button.config(state="normal"))
                 return
-            gt = ds.GetGeoTransform()
-            top_left_lon = gt[0]
-            top_left_lat = gt[3]
-            pixel_size_x = gt[1]
-            pixel_size_y = abs(gt[5])
+            except subprocess.CalledProcessError as e:
+                print(f"[ERROR] gdalinfo failed with exit code: {e.returncode}")
+                print(f"[ERROR] gdalinfo output: {e.stderr}")
+                # Handle GUI error message
+                self.status_label.config(text=f"Error getting info from warped file. Exit code: {e.returncode}", foreground="red")
+                messagebox.showerror("Error", f"Error getting info from warped file. Check console output. Exit code: {e.returncode}")
+                self.master.after(0, lambda: self.convert_button.config(state="normal"))
+                return
+            except json.JSONDecodeError as e:
+                print(f"[ERROR] Failed to parse gdalinfo JSON output: {e}")
+                # Handle GUI error message
+                self.status_label.config(text=f"Error parsing gdalinfo output.", foreground="red")
+                messagebox.showerror("Error", f"Failed to parse gdalinfo JSON output.")
+                self.master.after(0, lambda: self.convert_button.config(state="normal"))
+                return
+            except Exception as e:
+                print(f"[ERROR] Unexpected error while getting geo info: {e}")
+                # Handle GUI error message
+                self.status_label.config(text=f"An unexpected error occurred: {e}", foreground="red")
+                messagebox.showerror("Error", f"An unexpected error occurred.")
+                self.master.after(0, lambda: self.convert_button.config(state="normal"))
+                return
 
-            width = ds.RasterXSize
-            height = ds.RasterYSize
-
-            print(f"[INFO] Warped raster size: {width}x{height}")
-            print(f"[DEBUG] GeoTransform: {gt}")
 
             # Step 3: compute bounding box in whole degrees
             bottom_right_lon = top_left_lon + width * pixel_size_x
