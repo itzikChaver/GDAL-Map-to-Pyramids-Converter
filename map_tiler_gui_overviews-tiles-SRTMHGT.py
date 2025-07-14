@@ -6,11 +6,8 @@ import os
 import subprocess
 import threading
 from osgeo import gdal
-from osgeo import osr
 import math
 import os
-
-os.environ["PATH"] = r"C:\ProgramData\miniconda3\Library\bin;" + os.environ["PATH"]
 
 # Helper function to floor to nearest grid (default 1 degree)
 def floor_to_grid(value):
@@ -129,17 +126,9 @@ class MapTilerApp:
         # --- Output Area for Status (packed at the bottom) ---
         self.status_label.pack(pady=5) 
         self.output_text.pack(pady=5, padx=15, fill="both", expand=True)
-        # self.output_text.bind('<Key>', self.disable_typing)
-        # self.output_text.bind('<Control-c>', lambda e: self.output_text.event_generate('<<Copy>>'))
-        # self.output_text.bind('<Control-a>', lambda e: self.output_text.tag_add(tk.SEL, "1.0", tk.END))
 
         self.toggle_options_visibility()
         self.status_label.config(text="Ready. Please select an input file.")
-
-    # def disable_typing(event):
-    #     if event.state & 0x4:
-    #         return
-    #     return "break"
 
     def toggle_options_visibility(self):
         conversion_type = self.conversion_type_var.get()
@@ -201,7 +190,6 @@ class MapTilerApp:
             self.status_label.config(text=f"Input file selected. Output directory set to: {os.path.basename(input_file_directory)}")
             self.clear_output_text() 
 
-
     def browse_output_dir(self):
         initial_dir = None
         # Prioritize the directory of the selected input file
@@ -223,7 +211,6 @@ class MapTilerApp:
             self.status_label.config(text=f"Base output directory selected: {os.path.basename(dir_path)}")
             self.clear_output_text()
             
-
     def set_input_file_display(self, path, is_file=False):
         self.input_path_entry.config(state="normal")
         self.input_path_entry.delete(0, tk.END)
@@ -238,13 +225,11 @@ class MapTilerApp:
         self.input_path_entry.config(state="readonly")
         # self.clear_output_text() # Clearing output text is now handled in browse_input_file
 
-    # --- NEW FUNCTION: To manage output directory display ---
     def set_output_dir_display(self, path):
         self.output_path_entry.config(state="normal")
         self.output_path_entry.delete(0, tk.END)
         self.output_path_entry.insert(0, path)
         self.output_path_entry.config(state="readonly")
-
 
     def clear_output_text(self):
         self.output_text.config(state="normal")
@@ -319,36 +304,39 @@ class MapTilerApp:
         gdal2tiles_exe_path = os.path.join(gdal_bin_path, "gdal2tiles.exe")
         gdaladdo_exe_path = os.path.join(gdal_bin_path, "gdaladdo.exe")
         gdal_translate_exe_path = os.path.join(gdal_bin_path, "gdal_translate.exe")
-
         gdal_data_path = os.path.join(gdal_bin_path, "gdal-data")
         
         env = os.environ.copy()
         env['GDAL_DATA'] = gdal_data_path
         env['PATH'] = gdal_bin_path + ";" + env.get("PATH", "")
 
+        print(f"[DEBUG] PATH for subprocess:\n{env['PATH']}")
+        print(f"[DEBUG] GDAL_DATA for subprocess:\n{env['GDAL_DATA']}")
+
         actual_output_dir = os.path.normpath(actual_output_dir)
 
         if conversion_type == "tiles":
             print("[INFO] Running gdal2tiles command...")
 
-            # command = [
-            #     gdal2tiles_exe_path,
-            #     '-p', 'raster',
-            #     '-z', levels_input, 
-            #     f'--resampling={resampling_method}',
-            #     input_file,
-            #     actual_output_dir 
-            # ]
-
             command = [
-                "C:\\ProgramData\\miniconda3\\python.exe",
-                '-m', 'osgeo_utils.gdal2tiles',
+                gdal2tiles_exe_path,
                 '-p', 'raster',
                 '-z', levels_input, 
                 f'--resampling={resampling_method}',
                 input_file,
                 actual_output_dir 
             ]
+
+            # For Miniconda
+            # command = [
+            #     "C:\\ProgramData\\miniconda3\\python.exe",
+            #     '-m', 'osgeo_utils.gdal2tiles',
+            #     '-p', 'raster',
+            #     '-z', levels_input, 
+            #     f'--resampling={resampling_method}',
+            #     input_file,
+            #     actual_output_dir 
+            # ]
             final_output_display_path = actual_output_dir 
 
             self.update_output_text(f"Running command:\n{' '.join(command)}\n\n")
@@ -361,6 +349,8 @@ class MapTilerApp:
                 self.status_label.config(text="Conversion failed.", foreground="red")
                 self.convert_button.config(state="normal")
                 return
+
+            self.update_output_text("[DEBUG] Parsing levels input...\n")
 
             levels_list = levels_input.split()
             if not all(part.isdigit() for part in levels_list):
@@ -375,26 +365,28 @@ class MapTilerApp:
             output_geotiff_path = os.path.join(actual_output_dir, output_geotiff_name) 
             final_output_display_path = output_geotiff_path
 
-            self.update_output_text(f"Copying GeoTIFF to: {output_geotiff_path}\n")
-            
+            self.update_output_text(f"[DEBUG] Output GeoTIFF will be: {output_geotiff_path}\n")
+            self.update_output_text(f"Copying GeoTIFF to: {output_geotiff_path}...\n")
+
             translate_command = [
                 gdal_translate_exe_path,
                 input_file,
                 output_geotiff_path
             ]
 
-            # translate_command = [
-            #     "C:\\ProgramData\\miniconda3\\python.exe",
-            #     '-m', 'osgeo_utils.gdal_translate',
-            #     input_file,
-            #     output_geotiff_path
-            # ]
+            self.update_output_text(f"[DEBUG] Running gdal_translate command:\n{' '.join(translate_command)}\n")
             
             try:
+                self.update_output_text(f"[DEBUG] input_file: {input_file}\n")
+                self.update_output_text(f"[DEBUG] output_geotiff_path: {output_geotiff_path}\n")
+                self.update_output_text(f"[DEBUG] translate_command: {' '.join(translate_command)}\n")
+
                 process_translate = subprocess.Popen(translate_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, shell=True, env=env)
                 for line in process_translate.stdout:
                     self.update_output_text(line)
                 process_translate.wait()
+
+                self.update_output_text(f"[DEBUG] gdal_translate finished with exit code: {process_translate.returncode}\n")
 
                 if process_translate.returncode != 0:
                     self.status_label.config(text=f"Error copying GeoTIFF. Exit code: {process_translate.returncode}", foreground="red")
@@ -402,19 +394,22 @@ class MapTilerApp:
                     self.convert_button.config(state="normal")
                     return
 
-                self.update_output_text(f"GeoTIFF copied successfully.\n")
+                self.update_output_text(f"GeoTIFF copied successfully to: {output_geotiff_path}\n")
 
             except FileNotFoundError:
+                self.update_output_text(f"[ERROR] gdal_translate.exe not found at: {gdal_translate_exe_path}\n")
                 self.status_label.config(text=f"Error: gdal_translate.exe not found at ({gdal_translate_exe_path}).", foreground="red")
                 messagebox.showerror("Error", f"gdal_translate.exe not found. Ensure the full path is correct.")
                 self.convert_button.config(state="normal")
                 return
             except Exception as e:
+                self.update_output_text(f"[ERROR] Exception during copying: {e}\n")
                 self.status_label.config(text=f"An error occurred during copying: {e}", foreground="red")
                 messagebox.showerror("Error", f"An unexpected error occurred during copying: {e}")
                 self.convert_button.config(state="normal")
                 return
             
+            self.update_output_text(f"[DEBUG] Preparing to run gdaladdo overviews on: {output_geotiff_path}\n")
             self.update_output_text(f"Adding overviews to: {output_geotiff_path}\n")
             
             command = [
@@ -424,15 +419,7 @@ class MapTilerApp:
                 *levels_list 
             ]
 
-            # command = [
-            #     "C:\\ProgramData\\miniconda3\\python.exe",
-            #     '-m', 'osgeo_utils.gdaladdo',
-            #     '-r', resampling_method,
-            #     output_geotiff_path,
-            #     *levels_list
-            # ]
-
-            self.update_output_text(f"Running command:\n{' '.join(command)}\n\n")
+            self.update_output_text(f"Running gdaladdo command:\n{' '.join(command)}\n\n")
             
         elif conversion_type == "srtmhgt":
             print("[INFO] Starting SRTMHGT tiling...")
@@ -461,24 +448,12 @@ class MapTilerApp:
             print(f"[INFO] Warping to WGS84: {warped_file}")
             pixel_size = 1.0 / (tile_size - 1) 
 
-            # cmd = [
-            #     "gdalwarp",
-            #     "-t_srs", "EPSG:4326",
-            #     "-r", "bilinear",
-            #     "-tap",
-            #     "-tr", str(pixel_size), str(pixel_size),
-            #     "-overwrite",
-            #     input_file,
-            #     warped_file
-            # ]
-
             cmd = [
                 "gdalwarp",
                 "-t_srs", "EPSG:4326",
-                "-te", "34", "28", "38", "33",
+                "-r", "bilinear",
                 "-tap",
                 "-tr", str(pixel_size), str(pixel_size),
-                "-r", "bilinear",
                 "-overwrite",
                 input_file,
                 warped_file
@@ -511,18 +486,6 @@ class MapTilerApp:
 
             print(f"[INFO] Warped raster size: {width}x{height}")
             print(f"[DEBUG] GeoTransform: {gt}")
-
-            # Step 3: compute bounding box
-            bottom_right_lon = top_left_lon + ds.RasterXSize * pixel_size_x
-            bottom_right_lat = top_left_lat - ds.RasterYSize * pixel_size_y
-
-            te_min_lon = math.floor(top_left_lon)
-            te_max_lon = math.ceil(bottom_right_lon)
-            te_min_lat = math.floor(bottom_right_lat)
-            te_max_lat = math.ceil(top_left_lat)
-
-            print(f"[INFO] Lat range: {te_min_lat} to {te_max_lat}, Lon range: {te_min_lon} to {te_max_lon}")
-
 
             # Step 3: compute bounding box in whole degrees
             bottom_right_lon = top_left_lon + width * pixel_size_x
