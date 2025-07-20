@@ -585,10 +585,13 @@ class MapTilerApp:
                     yoff = int(round((top_left_lat - (lat + 1)) / pixel_size_y))
                     xoff = int(round((lon - top_left_lon) / pixel_size_x))
 
-                    # Defensive: ensure offsets in raster
-                    if yoff < 0 or yoff+tile_size > height or xoff < 0 or xoff+tile_size > width:
-                        print(f"[WARNING] Skipping tile out of bounds at lat={lat}, lon={lon}")
-                        continue
+                    # # Defensive: ensure offsets in raster
+                    # if yoff < 0 or yoff+tile_size > height or xoff < 0 or xoff+tile_size > width:
+                    #     print(f"[WARNING] Skipping tile out of bounds at lat={lat}, lon={lon}")
+                    #     continue
+
+                    # Create even tiles that exceed bounds; gdal_translate will pad missing data
+
 
                     hemi_ns = 'N' if lat >= 0 else 'S'
                     hemi_ew = 'E' if lon >= 0 else 'W'
