@@ -297,21 +297,45 @@ class MapTilerApp:
         command = []
         final_output_display_path = "" 
 
-        script_dir = os.path.dirname(__file__)
+        # script_dir = os.path.dirname(__file__)
         
-        gdal_bin_path = os.path.join(script_dir, "bin")
+        # gdal_bin_path = os.path.join(script_dir, "bin")
 
-        gdal2tiles_exe_path = os.path.join(gdal_bin_path, "gdal2tiles.exe")
-        gdaladdo_exe_path = os.path.join(gdal_bin_path, "gdaladdo.exe")
+        # gdal2tiles_exe_path = os.path.join(gdal_bin_path, "gdal2tiles.exe")
+        # gdaladdo_exe_path = os.path.join(gdal_bin_path, "gdaladdo.exe")
+        # gdal_translate_exe_path = os.path.join(gdal_bin_path, "gdal_translate.exe")
+        # gdal_data_path = os.path.join(gdal_bin_path, "gdal-data")
+        
+        # env = os.environ.copy()
+        # env['GDAL_DATA'] = gdal_data_path
+        # env['PATH'] = gdal_bin_path + ";" + env.get("PATH", "")
+
+        # print(f"[DEBUG] PATH for subprocess:\n{env['PATH']}")
+        # print(f"[DEBUG] GDAL_DATA for subprocess:\n{env['GDAL_DATA']}")
+
+        # Define the root path where OSGeo4W is installed
+        osgeo4w_root = r"C:\OSGeo4W"
+
+        # Define relevant subdirectories
+        gdal_bin_path = os.path.join(osgeo4w_root, "bin")
+        gdal_data_path = os.path.join(osgeo4w_root, "share", "gdal")
+
+        # Build full paths to executables
         gdal_translate_exe_path = os.path.join(gdal_bin_path, "gdal_translate.exe")
-        gdal_data_path = os.path.join(gdal_bin_path, "gdal-data")
-        
-        env = os.environ.copy()
-        env['GDAL_DATA'] = gdal_data_path
-        env['PATH'] = gdal_bin_path + ";" + env.get("PATH", "")
+        gdalinfo_exe_path = os.path.join(gdal_bin_path, "gdalinfo.exe")
+        gdalwarp_exe_path = os.path.join(gdal_bin_path, "gdalwarp.exe")
+        gdal2tiles_exe_path = os.path.join(gdal_bin_path, "gdal2tiles.py")  # use .exe if you have one
+        gdaladdo_exe_path = os.path.join(gdal_bin_path, "gdaladdo.exe")
 
-        print(f"[DEBUG] PATH for subprocess:\n{env['PATH']}")
-        print(f"[DEBUG] GDAL_DATA for subprocess:\n{env['GDAL_DATA']}")
+        # Prepare the environment for subprocess calls
+        env = os.environ.copy()
+        env["GDAL_DATA"] = gdal_data_path
+        env["PATH"] = gdal_bin_path + ";" + env.get("PATH", "")
+
+        # Debug output to verify configuration
+        print("[DEBUG] GDAL_BIN_PATH:", gdal_bin_path)
+        print("[DEBUG] GDAL_DATA:", gdal_data_path)
+        print("[DEBUG] PATH:", env["PATH"])
 
         actual_output_dir = os.path.normpath(actual_output_dir)
 
